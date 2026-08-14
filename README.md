@@ -61,7 +61,7 @@ piexp run experiment.yaml --variant vanilla --repeat 3
 piexp run experiment.yaml --results-dir /data/piexp-results
 ```
 
-A variant selector can be an exact variant ID, full generated variant name, or configuration name. A configuration name can select multiple model variants.
+A variant selector can be an exact variant ID, full generated variant name, or configuration name. A configuration name can select multiple model variants. Separate commands may add different selected variants to the same experiment/invocation: identical experiment metadata is reused, while an already-existing run ID remains immutable and is not overwritten.
 
 ## Specification reference
 

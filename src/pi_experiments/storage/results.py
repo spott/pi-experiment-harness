@@ -58,6 +58,7 @@ class ResultStore:
                 "experiment_content_hash": experiment.content_hash,
                 "scenario_content_hash": scenario.content_hash,
             },
+            reuse_identical=True,
         )
         return directory
 
@@ -150,11 +151,22 @@ class ResultStore:
         ResultStore._atomic_write(destination, data)
 
     @staticmethod
-    def _write_json_once(destination: Path, value: Any) -> None:
+    def _write_json_once(
+        destination: Path, value: Any, *, reuse_identical: bool = False
+    ) -> None:
         data = (
             json.dumps(to_primitive(value), indent=2, sort_keys=True, ensure_ascii=False) + "\n"
         ).encode("utf-8")
-        ResultStore._atomic_write(destination, data)
+        try:
+            ResultStore._atomic_write(destination, data)
+        except FileExistsError:
+            if reuse_identical and destination.read_bytes() == data:
+                return
+            if reuse_identical:
+                raise FileExistsError(
+                    f"artifact differs from existing file: {destination}"
+                ) from None
+            raise
 
     @staticmethod
     def _atomic_write(destination: Path, data: bytes, *, overwrite: bool = False) -> None:

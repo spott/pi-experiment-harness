@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import json
 from pathlib import Path
 
@@ -40,6 +41,19 @@ def test_result_store_creates_immutable_bundle(tmp_path: Path) -> None:
         store.write_json(run, "metrics.json", {})
     with pytest.raises(FileExistsError, match="already exists"):
         store.create_run(run)
+
+
+def test_result_store_reuses_identical_experiment_metadata(tmp_path: Path) -> None:
+    experiment, run = make_run(tmp_path / "spec")
+    store = ResultStore(tmp_path / "results")
+
+    first = store.initialize_experiment(run.experiment_id, experiment, run.scenario)
+    second = store.initialize_experiment(run.experiment_id, experiment, run.scenario)
+
+    assert second == first
+    conflicting = dataclasses.replace(experiment, content_hash="sha256:different")
+    with pytest.raises(FileExistsError, match="artifact differs"):
+        store.initialize_experiment(run.experiment_id, conflicting, run.scenario)
 
 
 def test_result_store_rejects_path_escape(tmp_path: Path) -> None:

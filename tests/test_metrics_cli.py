@@ -187,6 +187,43 @@ def test_cli_run_show_compare_workflow(tmp_path: Path) -> None:
     assert compared["variants"][0]["metrics"]["generic.evaluations_passed"]["median"] == 1
 
 
+def test_cli_can_add_selected_variants_in_separate_invocations(tmp_path: Path) -> None:
+    experiment_path, _ = make_specs(
+        tmp_path,
+        driver="json",
+        steps="  - prompt: {text: split-variant-smoke}\n",
+    )
+    experiment_path.write_text(
+        experiment_path.read_text(encoding="utf-8").replace(
+            "    - name: vanilla\n      extensions: []\n",
+            "    - name: vanilla\n      extensions: []\n"
+            "    - name: candidate\n      extensions: []\n",
+        ),
+        encoding="utf-8",
+    )
+
+    control = run_experiment(
+        experiment_path,
+        variants=["vanilla"],
+        invocation_id="split-variants",
+    )
+    treatment = run_experiment(
+        experiment_path,
+        variants=["candidate"],
+        invocation_id="split-variants",
+    )
+    compared = compare_experiment(tmp_path / "results", control["experiment_id"])
+
+    assert control["experiment_id"] == treatment["experiment_id"]
+    assert control["statuses"] == {"completed": 1}
+    assert treatment["statuses"] == {"completed": 1}
+    assert compared["run_count"] == 2
+    assert {item["variant"]["axes"]["configuration"]["name"] for item in compared["variants"]} == {
+        "vanilla",
+        "candidate",
+    }
+
+
 def test_gc_is_dry_run_by_default(tmp_path: Path) -> None:
     stale = tmp_path / "piexp-stale"
     stale.mkdir()
