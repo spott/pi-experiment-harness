@@ -1,0 +1,21 @@
+# Run from examples/basic/experiment.yaml after changing repo.source.
+name: basic-rpc-task
+repo:
+  # Relative paths are resolved from this scenario file.
+  source: ../../target-project
+  revision: HEAD
+driver: rpc
+steps:
+  - budget:
+      max_cost_usd: 2.00
+      max_model_turns: 8
+      max_wall_seconds: 900
+  - prompt:
+      file: prompt.md
+  - checkpoint: after-agent
+  - evaluate:
+      name: project-tests
+      commands:
+        - pytest -q
+      timeout_seconds: 300
+  - checkpoint: final

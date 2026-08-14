@@ -1,0 +1,25 @@
+name: basic-model-comparison
+scenario: scenario.yaml
+repetitions: 2
+matrix:
+  model:
+    - provider: anthropic
+      id: claude-sonnet-4-5
+      thinking: medium
+    - provider: openai
+      id: gpt-5.1-codex
+      thinking: medium
+  configuration:
+    - name: vanilla
+      extensions: []
+      skills: []
+    - name: with-local-extension
+      extensions:
+        # Change or remove this path before running.
+        - source: ../../my-pi-extension
+run:
+  isolation: fast
+  timeout_seconds: 1200
+  results_dir: ../../results
+  pi_executable: pi
+  credential_source: environment

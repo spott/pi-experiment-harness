@@ -1,0 +1,14 @@
+name = "one-shot-smoke"
+scenario = "scenario.toml"
+repetitions = 1
+
+[matrix]
+model = [{ provider = "anthropic", id = "claude-sonnet-4-5", thinking = "low" }]
+configuration = [{ name = "vanilla", extensions = [] }]
+
+[run]
+isolation = "fast"
+timeout_seconds = 600
+results_dir = "../../results"
+pi_executable = "pi"
+credential_source = "environment"

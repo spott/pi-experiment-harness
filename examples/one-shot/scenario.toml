@@ -1,0 +1,16 @@
+name = "one-shot-smoke"
+driver = "json"
+
+[repo]
+# Change this path before running.
+source = "../../target-project"
+revision = "HEAD"
+
+[[steps]]
+prompt = { text = "Make the smallest correct change for the task in the repository, then report verification." }
+
+[[steps]]
+evaluate = { name = "tests", commands = ["pytest -q"], timeout_seconds = 300 }
+
+[[steps]]
+checkpoint = "final"
