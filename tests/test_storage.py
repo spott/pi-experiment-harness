@@ -43,6 +43,25 @@ def test_result_store_creates_immutable_bundle(tmp_path: Path) -> None:
         store.create_run(run)
 
 
+def test_result_store_appends_deeply_nested_jsonl_event(tmp_path: Path) -> None:
+    experiment, run = make_run(tmp_path / "spec")
+    store = ResultStore(tmp_path / "results")
+    store.initialize_experiment(run.experiment_id, experiment, run.scenario)
+    paths = store.create_run(run)
+    depth = 1_200
+    nested: object = "leaf"
+    for _ in range(depth):
+        nested = {"child": [nested]}
+
+    store.append_jsonl(run, "events.jsonl", [{"type": "deep", "value": nested}])
+
+    decoded = json.loads(paths.events.read_text(encoding="utf-8"))
+    value = decoded["value"]
+    for _ in range(depth):
+        value = value["child"][0]
+    assert value == "leaf"
+
+
 def test_result_store_reuses_identical_experiment_metadata(tmp_path: Path) -> None:
     experiment, run = make_run(tmp_path / "spec")
     store = ResultStore(tmp_path / "results")

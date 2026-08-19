@@ -10,20 +10,56 @@ from typing import Any
 
 
 def to_primitive(value: Any) -> Any:
-    if dataclasses.is_dataclass(value):
-        return {
-            field.name: to_primitive(getattr(value, field.name))
-            for field in dataclasses.fields(value)
-        }
-    if isinstance(value, Path):
-        return str(value)
-    if isinstance(value, dict):
-        return {str(key): to_primitive(item) for key, item in value.items()}
-    if isinstance(value, (tuple, list)):
-        return [to_primitive(item) for item in value]
-    if isinstance(value, (str, int, float, bool)) or value is None:
-        return value
-    raise TypeError(f"cannot serialize {type(value).__name__}")
+    """Convert supported values without recursing through nested containers."""
+    result: list[Any] = [None]
+    active_container_ids: set[int] = set()
+    stack: list[tuple[str, Any, list[Any] | dict[str, Any] | None, int | str | None]] = [
+        ("visit", value, result, 0)
+    ]
+
+    while stack:
+        action, current, parent, slot = stack.pop()
+        if action == "leave":
+            active_container_ids.remove(current)
+            continue
+
+        if isinstance(current, Path):
+            converted: Any = str(current)
+            children: list[tuple[int | str, Any]] | None = None
+        elif isinstance(current, (str, int, float, bool)) or current is None:
+            converted = current
+            children = None
+        elif dataclasses.is_dataclass(current):
+            converted = {}
+            children = [
+                (field.name, getattr(current, field.name))
+                for field in dataclasses.fields(current)
+            ]
+        elif isinstance(current, dict):
+            converted = {}
+            children = [(str(key), item) for key, item in current.items()]
+        elif isinstance(current, (tuple, list)):
+            converted = [None] * len(current)
+            children = list(enumerate(current))
+        else:
+            raise TypeError(f"cannot serialize {type(current).__name__}")
+
+        assert parent is not None and slot is not None
+        parent[slot] = converted
+        if children is None:
+            continue
+
+        container_id = id(current)
+        if container_id in active_container_ids:
+            raise ValueError("circular reference detected")
+        active_container_ids.add(container_id)
+        stack.append(("leave", container_id, None, None))
+        stack.extend(
+            ("visit", child, converted, child_slot)
+            for child_slot, child in reversed(children)
+        )
+
+    return result[0]
 
 
 def canonical_json(value: Any) -> str:
