@@ -62,10 +62,66 @@ def to_primitive(value: Any) -> Any:
     return result[0]
 
 
+def json_text(value: Any, *, indent: int | None = None) -> str:
+    """Encode supported values as JSON without recursive container traversal."""
+    primitive = to_primitive(value)
+    pieces: list[str] = []
+    stack: list[tuple[str, Any, int]] = [("value", primitive, 0)]
+
+    while stack:
+        action, current, depth = stack.pop()
+        if action == "raw":
+            pieces.append(current)
+            continue
+
+        if isinstance(current, (str, int, float, bool)) or current is None:
+            pieces.append(json.dumps(current, ensure_ascii=False))
+            continue
+
+        if isinstance(current, list):
+            if not current:
+                pieces.append("[]")
+                continue
+            child_depth = depth + 1
+            padding = "" if indent is None else "\n" + " " * (indent * child_depth)
+            separator = "," if indent is None else "," + padding
+            closing = "]" if indent is None else "\n" + " " * (indent * depth) + "]"
+            pieces.append("[" + padding)
+            stack.append(("raw", closing, depth))
+            for index in range(len(current) - 1, -1, -1):
+                if index < len(current) - 1:
+                    stack.append(("raw", separator, depth))
+                stack.append(("value", current[index], child_depth))
+            continue
+
+        if isinstance(current, dict):
+            if not current:
+                pieces.append("{}")
+                continue
+            child_depth = depth + 1
+            padding = "" if indent is None else "\n" + " " * (indent * child_depth)
+            separator = "," if indent is None else "," + padding
+            key_separator = ":" if indent is None else ": "
+            closing = "}" if indent is None else "\n" + " " * (indent * depth) + "}"
+            items = sorted(current.items())
+            pieces.append("{" + padding)
+            stack.append(("raw", closing, depth))
+            for index in range(len(items) - 1, -1, -1):
+                key, item = items[index]
+                if index < len(items) - 1:
+                    stack.append(("raw", separator, depth))
+                stack.append(("value", item, child_depth))
+                encoded_key = json.dumps(key, ensure_ascii=False)
+                stack.append(("raw", encoded_key + key_separator, depth))
+            continue
+
+        raise TypeError(f"cannot serialize {type(current).__name__}")
+
+    return "".join(pieces)
+
+
 def canonical_json(value: Any) -> str:
-    return json.dumps(
-        to_primitive(value), sort_keys=True, separators=(",", ":"), ensure_ascii=False
-    )
+    return json_text(value)
 
 
 def content_hash(value: bytes | str, *, prefix: str = "sha256") -> str:

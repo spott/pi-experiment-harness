@@ -62,6 +62,28 @@ def test_result_store_appends_deeply_nested_jsonl_event(tmp_path: Path) -> None:
     assert value == "leaf"
 
 
+def test_result_store_writes_deeply_nested_checkpoint_json(tmp_path: Path) -> None:
+    experiment, run = make_run(tmp_path / "spec")
+    store = ResultStore(tmp_path / "results")
+    store.initialize_experiment(run.experiment_id, experiment, run.scenario)
+    store.create_run(run)
+    depth = 1_200
+    nested: object = "leaf"
+    for _ in range(depth):
+        nested = {"child": [nested]}
+
+    checkpoint = store.write_json(
+        run,
+        "checkpoints/after-turn-0001.json",
+        {"scenario_step": 1, "checkpoint": nested},
+    )
+
+    decoded = json.loads(checkpoint.read_text(encoding="utf-8"))["checkpoint"]
+    for _ in range(depth):
+        decoded = decoded["child"][0]
+    assert decoded == "leaf"
+
+
 def test_result_store_reuses_identical_experiment_metadata(tmp_path: Path) -> None:
     experiment, run = make_run(tmp_path / "spec")
     store = ResultStore(tmp_path / "results")
@@ -82,6 +104,31 @@ def test_result_store_rejects_path_escape(tmp_path: Path) -> None:
     store.create_run(run)
     with pytest.raises(ValueError, match="inside its run"):
         store.write_bytes(run, "../outside", b"bad")
+
+
+def test_sqlite_indexes_deeply_nested_checkpoint(tmp_path: Path) -> None:
+    experiment, run = make_run(tmp_path / "spec")
+    result_path = tmp_path / "results" / run.experiment_id / "runs" / run.run_id
+    index = ResultIndex(tmp_path / "results" / "index.sqlite3")
+    index.register_experiment(run.experiment_id, experiment, run.scenario)
+    index.register_variant(run.experiment_id, run.variant)
+    index.register_run(run, result_path)
+    depth = 1_200
+    nested: object = "leaf"
+    for _ in range(depth):
+        nested = {"child": [nested]}
+
+    index.add_checkpoint(run.run_id, "after", 1, {"checkpoint": nested})
+
+    with index.connect() as connection:
+        encoded = connection.execute(
+            "SELECT data_json FROM checkpoints WHERE run_id=? AND name=?",
+            (run.run_id, "after"),
+        ).fetchone()[0]
+    decoded = json.loads(encoded)["checkpoint"]
+    for _ in range(depth):
+        decoded = decoded["child"][0]
+    assert decoded == "leaf"
 
 
 def test_sqlite_indexes_all_core_entities(tmp_path: Path) -> None:

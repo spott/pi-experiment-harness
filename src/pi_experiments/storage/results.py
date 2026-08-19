@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import tempfile
@@ -11,7 +10,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from ..paths import safe_component
-from ..serde import to_primitive
+from ..serde import json_text
 from ..spec import ExperimentSpec, RunSpec, ScenarioSpec
 
 
@@ -106,9 +105,7 @@ class ResultStore:
         destination.parent.mkdir(parents=True, exist_ok=True)
         with destination.open("ab") as handle:
             for value in values:
-                encoded = json.dumps(
-                    to_primitive(value), sort_keys=True, ensure_ascii=False, separators=(",", ":")
-                ).encode("utf-8")
+                encoded = json_text(value).encode("utf-8")
                 handle.write(encoded + b"\n")
             handle.flush()
             os.fsync(handle.fileno())
@@ -154,9 +151,7 @@ class ResultStore:
     def _write_json_once(
         destination: Path, value: Any, *, reuse_identical: bool = False
     ) -> None:
-        data = (
-            json.dumps(to_primitive(value), indent=2, sort_keys=True, ensure_ascii=False) + "\n"
-        ).encode("utf-8")
+        data = (json_text(value, indent=2) + "\n").encode("utf-8")
         try:
             ResultStore._atomic_write(destination, data)
         except FileExistsError:

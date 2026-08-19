@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from pi_experiments.serde import canonical_json, to_primitive
+from pi_experiments.serde import canonical_json, json_text, to_primitive
 
 
 @dataclasses.dataclass(frozen=True)
@@ -30,6 +30,34 @@ def test_to_primitive_rejects_circular_references() -> None:
 
     with pytest.raises(ValueError, match="circular reference"):
         to_primitive(value)
+
+
+def test_json_text_matches_standard_encoder_for_supported_values() -> None:
+    value = {
+        "unicode": "caf\u00e9 \"quoted\"\nline",
+        "numbers": [1, -2, 3.5, float("inf"), None, True, False],
+        "nested": {"empty_dict": {}, "empty_list": [], "path": Path("a/b")},
+    }
+    primitive = to_primitive(value)
+
+    assert json_text(value) == json.dumps(
+        primitive, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    )
+    assert json_text(value, indent=2) == json.dumps(
+        primitive, indent=2, sort_keys=True, ensure_ascii=False
+    )
+
+
+def test_json_text_pretty_prints_deeply_nested_containers() -> None:
+    depth = 1_200
+    value: object = "leaf"
+    for _ in range(depth):
+        value = {"child": [value]}
+
+    decoded = json.loads(json_text(value, indent=2))
+    for _ in range(depth):
+        decoded = decoded["child"][0]
+    assert decoded == "leaf"
 
 
 def test_canonical_json_handles_deeply_nested_containers() -> None:

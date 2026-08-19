@@ -7,7 +7,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Iterable
 
-from ..serde import to_primitive
+from ..serde import json_text
 from ..spec import ExperimentSpec, RunSpec, ScenarioSpec, VariantSpec
 
 _SCHEMA = """
@@ -94,7 +94,7 @@ CREATE INDEX IF NOT EXISTS metrics_lookup ON metrics(namespace, key);
 
 
 def _json(value: Any) -> str:
-    return json.dumps(to_primitive(value), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return json_text(value)
 
 
 class ResultIndex:
