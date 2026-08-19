@@ -96,7 +96,12 @@ def _markers(entries: tuple[Mapping[str, Any], ...]) -> list[_Marker]:
             event = _normalized_key(value, "event", "markerEvent", "marker_event")
             version = _normalized_key(value, "schemaVersion", "schema_version")
             task_id = _normalized_key(value, "taskId", "task_id")
-            if event not in {"begin", "end"} or version != 1 or not isinstance(task_id, str):
+            if (
+                not isinstance(event, str)
+                or event not in {"begin", "end"}
+                or version != 1
+                or not isinstance(task_id, str)
+            ):
                 continue
             signature = (index, event, task_id, canonical_json(value))
             if signature not in seen:

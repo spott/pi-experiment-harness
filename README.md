@@ -11,7 +11,8 @@ A reproducible scenario harness for comparing [Pi coding agent](https://github.c
 - Isolated Pi state/session directories and explicit credential selection
 - Raw Pi events/session/stderr, evaluator logs, Git patches, provenance, and checkpoints
 - Generic usage/cost/tool/Git/evaluator metrics
-- Metrics for version-1 Pi task-compaction markers
+- Metrics for version-1 Pi task-compaction markers and v2 semantic task-framework sessions
+- Private capture of task-framework worker routes, bootstraps, and owning Pi sessions
 - `run`, `show`, `compare`, and dry-run-first `gc` commands
 
 The implemented isolation backend is **fast isolation**, not a security boundary. See [Limitations](#limitations).
@@ -138,6 +139,7 @@ Every matrix axis is expanded with every other axis. `model` and `configuration`
 Supported configuration fields:
 
 - `extensions`, `skills`, `prompt_templates`: package names or local paths; local resources are hashed
+- `extension_flags`: scalar extension CLI flag values, encoded as explicit `--name value` pairs
 - `tools`, `exclude_tools`: Pi tool allow/deny lists
 - `context_files`, `approve_project`: opt into context discovery/project approval
 - `system_prompt`, `append_system_prompts`
@@ -145,6 +147,16 @@ Supported configuration fields:
 - `environment`: scalar environment overrides
 
 Pi resource discovery is deny-by-default. The harness starts Pi with extensions, skills, prompt templates, themes, and context files disabled, then adds only declared resources. Per-resource extension configuration is not executable in this release and fails explicitly instead of being ignored.
+
+`extension_flags` is the config-only ablation path for one extension build. Keys omit the leading `--`; values must be strings, numbers, or booleans (booleans become lowercase `true`/`false`). Harness-owned Pi flags such as `mode`, `session`, `extension`, `model`, and `tools` are rejected so a variant cannot escape driver or isolation controls. For example:
+
+```yaml
+extension_flags:
+  task-framework-tasks: true
+  task-framework-summaries: true
+  task-framework-compaction: false
+  task-framework-agents: true
+```
 
 ### Credentials
 
@@ -169,6 +181,12 @@ results/
       run-spec.json
       events.jsonl
       session.jsonl
+      task-framework-runs/RUN_ID/
+        run.json
+        workers/
+        bootstraps/
+        sessions/
+        leases/
       stderr.log
       turns/
       checkpoints/
@@ -188,7 +206,9 @@ results/
 
 `completed.json` makes a bundle immutable. Failed setup/execution and exceeded budgets are also finalized outcomes with `error.json` or `budget.json`. SQLite stores queryable run entities and derived metrics, but artifacts remain authoritative.
 
-Generic metrics include actual persisted-session usage/cost, turn context trajectories, tool calls/failures, compactions, session growth, Git change counts, and evaluator outcomes. Task-compaction metrics include marker pairing, open/closed regions, raw/summary sizes, compression ratios, expansions, and explicit acceptance diagnostics when present. The harness reports unavailable measurements as `null`; for example, provider-request projection diagnostics are required to prove raw-body reintroduction after global compaction.
+Generic metrics include actual persisted-session usage/cost, turn context trajectories, tool calls/failures, compactions, session growth, Git change counts, and evaluator outcomes. Version-1 task-compaction metrics include marker pairing, open/closed regions, raw/summary sizes, compression ratios, expansions, and explicit acceptance diagnostics when present.
+
+The `task_framework` namespace combines the coordinator session with captured worker sessions and registry artifacts. It reports local/semantic/agent depth distributions, child counts, durations, summary sizes, raw/projected context trajectories, pins and closure footprint, protected interactions, replay and rejection diagnostics, inspection/read frequency, global-compaction outcomes, worker startup/overlap/utilization, join waits, context routing, parent/worker usage split, and semantic/derived worker failures. It also records the summaries-arm interpretation: `summaries=false` disables durable retention, not model summary authorship. Missing or inapplicable measurements remain `null` rather than being inferred.
 
 `compare` reports count/min/median/mean/max for each numeric top-level metric by variant. It does not calculate a composite score or statistical significance.
 

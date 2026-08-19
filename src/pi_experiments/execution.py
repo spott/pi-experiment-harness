@@ -12,6 +12,7 @@ from time import monotonic
 from typing import Any, Mapping
 
 from .capture.git import capture_git
+from .capture.task_framework import capture_task_framework_runs
 from .drivers.base import PiDriver, make_driver
 from .drivers.config import pi_provenance
 from .metrics import extract_metrics
@@ -224,6 +225,8 @@ class RunExecutor:
             self.store.write_bytes(run, "session.jsonl", driver.session_file.read_bytes())
         elif not paths.session.exists():
             self.store.write_bytes(run, "session.jsonl", b"")
+        for relative, data in capture_task_framework_runs(paths.session).items():
+            self.store.write_bytes(run, relative, data)
         self.store.write_bytes(
             run, "final-response.md", outcome.final_response.encode("utf-8")
         )
@@ -277,6 +280,8 @@ def _artifact_kind(relative: str) -> str:
         return "turn"
     if relative.startswith("checkpoints/"):
         return "checkpoint"
+    if relative.startswith("task-framework-runs/"):
+        return "task-framework"
     if relative.startswith("evaluator"):
         return "evaluation"
     if relative in {"patch.diff", "git-status.txt", "changed-files.json", "final-tree.txt"}:

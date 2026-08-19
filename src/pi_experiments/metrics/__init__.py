@@ -8,10 +8,12 @@ from typing import Any, Mapping, Sequence
 from .base import MetricExtractor, load_artifacts
 from .generic import GenericExtractor
 from .task_compaction import TaskCompactionExtractor
+from .task_framework import TaskFrameworkExtractor
 
 DEFAULT_EXTRACTORS: tuple[MetricExtractor, ...] = (
     GenericExtractor(),
     TaskCompactionExtractor(),
+    TaskFrameworkExtractor(),
 )
 
 
@@ -42,6 +44,7 @@ __all__ = [
     "GenericExtractor",
     "MetricExtractor",
     "TaskCompactionExtractor",
+    "TaskFrameworkExtractor",
     "extract_metrics",
     "load_artifacts",
 ]

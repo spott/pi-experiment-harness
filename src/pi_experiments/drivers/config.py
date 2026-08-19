@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -14,6 +15,32 @@ from typing import Any, Mapping, Sequence
 from ..spec import RunSpec
 from ..workspace.base import Workspace
 from .base import DriverError
+
+_EXTENSION_FLAG = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]*$")
+_HARNESS_OWNED_FLAGS = {
+    "mode",
+    "session",
+    "session-dir",
+    "extension",
+    "no-extensions",
+    "skill",
+    "no-skills",
+    "prompt-template",
+    "no-prompt-templates",
+    "theme",
+    "no-themes",
+    "context-file",
+    "no-context-files",
+    "approve",
+    "no-approve",
+    "model",
+    "provider",
+    "thinking",
+    "tools",
+    "exclude-tools",
+    "system-prompt",
+    "append-system-prompt",
+}
 
 _CREDENTIAL_VARIABLES = {
     "ANTHROPIC_AUTH_TOKEN",
@@ -163,6 +190,24 @@ def process_arguments(run: RunSpec, workspace: Workspace, *, mode: str) -> list[
             else:
                 raise DriverError(f"configuration.{field} entries require a source")
             arguments.extend([flag, source])
+    extension_flags = configuration.get("extension_flags", {})
+    if not isinstance(extension_flags, Mapping):
+        raise DriverError("configuration.extension_flags must be a mapping")
+    for name, value in extension_flags.items():
+        if (
+            not isinstance(name, str)
+            or _EXTENSION_FLAG.fullmatch(name) is None
+            or name in _HARNESS_OWNED_FLAGS
+        ):
+            raise DriverError(
+                f"configuration.extension_flags contains unsafe or harness-owned flag {name!r}"
+            )
+        if not isinstance(value, (str, int, float, bool)):
+            raise DriverError(
+                f"configuration.extension_flags.{name} must be a scalar value"
+            )
+        encoded = str(value).lower() if isinstance(value, bool) else str(value)
+        arguments.extend([f"--{name}", encoded])
     if "system_prompt" in configuration:
         arguments.extend(["--system-prompt", str(configuration["system_prompt"])])
     append_prompts = configuration.get("append_system_prompts", [])
