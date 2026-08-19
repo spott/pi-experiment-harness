@@ -97,6 +97,22 @@ def test_expands_cartesian_matrix_and_unique_run_identity(tmp_path: Path) -> Non
     assert all(run.scenario.steps[0].arguments["text"] == "Inspect the parser.\n" for run in first)
 
 
+def test_relative_pi_executable_resolves_from_experiment(tmp_path: Path) -> None:
+    write_scenario(tmp_path)
+    experiment_path = write_experiment(tmp_path)
+    experiment_path.write_text(
+        experiment_path.read_text(encoding="utf-8").replace(
+            "credential_source: none",
+            "pi_executable: ./tools/pi\n  credential_source: none",
+        ),
+        encoding="utf-8",
+    )
+
+    experiment = load_experiment(experiment_path)
+
+    assert experiment.run.pi_executable == str((tmp_path / "tools" / "pi").resolve())
+
+
 def test_variant_filter_rejects_unknown_id(tmp_path: Path) -> None:
     write_scenario(tmp_path)
     experiment = load_experiment(write_experiment(tmp_path))

@@ -168,6 +168,8 @@ extension_flags:
 
 Do not put secrets in `configuration.environment`: resolved run specs and provenance are persisted. Prefer process environment variables or isolated host auth.
 
+A `run.pi_executable` value beginning with `./`, `../`, `~/`, or `/` is resolved from the experiment document (with home expansion where applicable); a bare value such as `pi` remains a `PATH` command.
+
 ## Result layout
 
 ```text

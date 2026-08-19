@@ -277,12 +277,17 @@ def load_experiment(path: str | Path) -> ExperimentSpec:
     host_state = run_raw.get("host_pi_state_dir")
     if credential_source == "host_auth" and not host_state:
         raise SpecError("experiment.run.host_pi_state_dir is required for host_auth")
+    pi_executable = _nonempty_string(
+        run_raw.get("pi_executable", "pi"), "experiment.run.pi_executable"
+    )
+    if pi_executable.startswith(("./", "../", "~/", "/")):
+        pi_executable = str(relative_to(base, pi_executable))
     options = RunOptions(
         isolation=isolation,
         timeout_seconds=float(timeout),
         max_parallel_per_provider=parallel,
         results_dir=relative_to(base, run_raw.get("results_dir", "results")),
-        pi_executable=str(run_raw.get("pi_executable", "pi")),
+        pi_executable=pi_executable,
         credential_source=credential_source,
         host_pi_state_dir=relative_to(base, host_state) if host_state else None,
     )
