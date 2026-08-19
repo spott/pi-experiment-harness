@@ -20,11 +20,13 @@ def _write_jsonl(path: Path, values: list[dict]) -> None:
     path.write_text("".join(json.dumps(value) + "\n" for value in values), encoding="utf-8")
 
 
-def _custom(custom_type: str, data: dict, *, entry_id: str) -> dict:
+def _custom(
+    custom_type: str, data: dict, *, entry_id: str, schema_version: int = 1
+) -> dict:
     return {
         "type": "custom",
         "customType": custom_type,
-        "data": {"schemaVersion": 1, **data},
+        "data": {"schemaVersion": schema_version, **data},
         "id": entry_id,
         "timestamp": "2026-01-01T00:00:00Z",
     }
@@ -124,6 +126,137 @@ def test_capture_snapshots_private_worker_artifacts_and_rejects_symlinks(
     (run / "workers" / "link.json").symlink_to(run / "workers" / "worker.json")
     with pytest.raises(TaskFrameworkCaptureError, match="symlink"):
         capture_task_framework_runs(session)
+
+
+def test_projection_metrics_accept_schema_v2_and_separate_rewrites_from_hooks(
+    tmp_path: Path,
+) -> None:
+    def projection(
+        entry_id: str,
+        *,
+        schema_version: int,
+        task_ids: list[str],
+        alignment: str | None = None,
+        omitted_errors: int | None = None,
+        rejections: list[dict] | None = None,
+    ) -> dict:
+        metrics: dict[str, object] = {
+            "inputMessageCount": 10,
+            "outputMessageCount": 5 if task_ids else 10,
+            "inputEstimatedTokens": 1000,
+            "outputEstimatedTokens": 300 if task_ids else 1000,
+            "inputSerializedBytes": 4000,
+            "outputSerializedBytes": 1200 if task_ids else 4000,
+            "projectedRawMessageCount": 5 if task_ids else 0,
+            "pinnedClosureEntryCount": 0,
+            "pinnedClosureEstimatedTokens": 0,
+            "protectedInteractionCount": 0,
+            "replayedMessageCount": 0,
+            "maxReplayCascadeDepth": 0,
+        }
+        if alignment is not None:
+            metrics["contextAlignment"] = alignment
+        if omitted_errors is not None:
+            metrics["omittedRetryErrorEntryCount"] = omitted_errors
+        return _custom(
+            "pi-task-framework/evaluation",
+            {
+                "kind": "context_projection",
+                "at": 1000,
+                "sessionId": "coordinator",
+                "projectedTaskIds": task_ids,
+                "projectionRejections": rejections or [],
+                "metrics": metrics,
+            },
+            entry_id=entry_id,
+            schema_version=schema_version,
+        )
+
+    _write_jsonl(
+        tmp_path / "session.jsonl",
+        [
+            {"type": "session", "version": 3, "id": "coordinator"},
+            projection("legacy", schema_version=1, task_ids=["legacy-task"]),
+            projection(
+                "exact",
+                schema_version=2,
+                task_ids=["task-a", "task-b"],
+                alignment="exact",
+                omitted_errors=0,
+            ),
+            projection(
+                "retry",
+                schema_version=2,
+                task_ids=["task-a"],
+                alignment="retry_error_omissions",
+                omitted_errors=2,
+            ),
+            projection(
+                "mismatch",
+                schema_version=2,
+                task_ids=[],
+                alignment="mismatch",
+                omitted_errors=1,
+                rejections=[
+                    {"taskId": "task-c", "reasons": ["message mismatch"]},
+                    {"taskId": "task-d", "reasons": ["message mismatch"]},
+                ],
+            ),
+            _custom(
+                "pi-task-framework/evaluation",
+                {
+                    "kind": "global_compaction",
+                    "at": 1001,
+                    "sessionId": "coordinator",
+                    "reason": "threshold",
+                    "willRetry": False,
+                    "cancelled": False,
+                    "requestedFirstKeptEntryId": "entry-a",
+                    "alignedFirstKeptEntryId": "entry-a",
+                    "alignment": "exact",
+                    "projectedTaskIds": ["task-a"],
+                    "projectionRejections": [],
+                    "summarizedMessageCount": 5,
+                    "tokensBefore": 1000,
+                },
+                entry_id="global",
+                schema_version=2,
+            ),
+            projection(
+                "future",
+                schema_version=3,
+                task_ids=["ignored-task"],
+                alignment="exact",
+                omitted_errors=0,
+            ),
+        ],
+    )
+    _write_jsonl(tmp_path / "events.jsonl", [])
+
+    metrics = extract_metrics(tmp_path, {"status": "completed", "wall_seconds": 10})
+    task = metrics["namespaces"]["task_framework"]
+
+    assert metrics["extractor_errors"] == []
+    assert task["projection_count"] == 4
+    assert task["projection_telemetry_schema_version_counts"] == {"1": 1, "2": 3}
+    assert task["projection_rewrite_count"] == 3
+    assert task["projected_task_occurrence_count"] == 4
+    assert task["unique_projected_task_count"] == 3
+    assert task["context_alignment_counts"] == {
+        "exact": 1,
+        "mismatch": 1,
+        "retry_error_omissions": 1,
+        "unreported": 1,
+    }
+    assert task["retry_error_omission_projection_count"] == 1
+    assert task["omitted_retry_error_entry_count"] == 3
+    assert task["context_alignment_mismatch_count"] == 1
+    assert task["context_projection_rejection_record_count"] == 1
+    assert task["context_projection_rejected_task_occurrence_count"] == 2
+    assert task["unique_context_projection_rejected_task_count"] == 2
+    assert task["projection_rejection_reasons"] == {"message mismatch": 2}
+    assert task["global_compaction_decision_count"] == 1
+    assert task["global_compaction_alignment_counts"] == {"exact": 1}
 
 
 def test_v2_metrics_cover_tasks_projection_workers_and_context_routing(tmp_path: Path) -> None:
@@ -385,6 +518,18 @@ def test_v2_metrics_cover_tasks_projection_workers_and_context_routing(tmp_path:
     assert task["pinned_output_count"] == 1
     assert task["protected_interaction_count"] == 1
     assert task["latest_context_compression_ratio"] == 0.3
+    assert task["projection_count"] == 1
+    assert task["projection_telemetry_schema_version_counts"] == {"1": 1}
+    assert task["projection_rewrite_count"] == 1
+    assert task["projected_task_occurrence_count"] == 1
+    assert task["unique_projected_task_count"] == 1
+    assert task["context_alignment_counts"] == {"unreported": 1}
+    assert task["retry_error_omission_projection_count"] == 0
+    assert task["omitted_retry_error_entry_count"] == 0
+    assert task["context_alignment_mismatch_count"] == 0
+    assert task["context_projection_rejection_record_count"] == 1
+    assert task["context_projection_rejected_task_occurrence_count"] == 1
+    assert task["unique_context_projection_rejected_task_count"] == 1
     assert task["max_pin_retained_closure_estimated_tokens"] == 40
     assert task["replayed_message_occurrences"] == 1
     assert task["max_replay_cascade_depth"] == 2

@@ -14,6 +14,7 @@ from .base import ArtifactRecords
 
 _TASK_EVENT = "pi-task-framework/task-event"
 _EVALUATION = "pi-task-framework/evaluation"
+_EVALUATION_SCHEMA_VERSIONS = frozenset({1, 2})
 
 
 @dataclass(frozen=True)
@@ -38,17 +39,20 @@ class TaskFrameworkExtractor:
         tasks = _tasks(events)
         task_rows = _task_rows(tasks)
         tool_calls = [call for session in sessions for call in _tool_calls(session)]
-        projections = [
+        evaluation_records = [
             record
             for session in sessions
-            for record in _custom_records(session.entries, _EVALUATION)
-            if record.get("kind") == "context_projection"
+            for record in _custom_records(
+                session.entries,
+                _EVALUATION,
+                schema_versions=_EVALUATION_SCHEMA_VERSIONS,
+            )
+        ]
+        projections = [
+            record for record in evaluation_records if record.get("kind") == "context_projection"
         ]
         global_compactions = [
-            record
-            for session in sessions
-            for record in _custom_records(session.entries, _EVALUATION)
-            if record.get("kind") == "global_compaction"
+            record for record in evaluation_records if record.get("kind") == "global_compaction"
         ]
         projection_rejections = Counter(
             str(reason)
@@ -61,6 +65,30 @@ class TaskFrameworkExtractor:
         protected = [event for _, event in events if event.get("type") == "user_response_protected"]
         projection_metrics = [
             record["metrics"] for record in projections if isinstance(record.get("metrics"), Mapping)
+        ]
+        projected_task_ids = [
+            task_id
+            for record in projections
+            for task_id in record.get("projectedTaskIds", [])
+            if isinstance(task_id, str)
+        ]
+        projection_rejection_lists = [
+            _mapping_list(record.get("projectionRejections")) for record in projections
+        ]
+        rejected_projection_task_ids = [
+            task_id
+            for rejections in projection_rejection_lists
+            for rejection in rejections
+            if isinstance((task_id := rejection.get("taskId")), str)
+        ]
+        alignment_counts = Counter(
+            str(metrics.get("contextAlignment", "unreported")) for metrics in projection_metrics
+        )
+        omitted_retry_error_counts = [
+            value
+            for metrics in projection_metrics
+            if (value := _integer(metrics.get("omittedRetryErrorEntryCount"))) is not None
+            and value >= 0
         ]
         local_depths = [row["local_depth"] for row in task_rows]
         semantic_depths = [row["semantic_depth"] for row in task_rows if row["semantic_depth"] is not None]
@@ -108,6 +136,27 @@ class TaskFrameworkExtractor:
             "inspect_task_count": len(inspect_calls),
             "preserved_output_read_count": len(read_calls),
             "projection_count": len(projections),
+            "projection_telemetry_schema_version_counts": dict(
+                sorted(Counter(str(record.get("schemaVersion")) for record in projections).items())
+            ),
+            "projection_rewrite_count": sum(
+                bool(record.get("projectedTaskIds")) for record in projections
+            ),
+            "projected_task_occurrence_count": len(projected_task_ids),
+            "unique_projected_task_count": len(set(projected_task_ids)),
+            "context_alignment_counts": dict(sorted(alignment_counts.items())),
+            "retry_error_omission_projection_count": alignment_counts["retry_error_omissions"],
+            "omitted_retry_error_entry_count": sum(omitted_retry_error_counts),
+            "context_alignment_mismatch_count": alignment_counts["mismatch"],
+            "context_projection_rejection_record_count": sum(
+                bool(rejections) for rejections in projection_rejection_lists
+            ),
+            "context_projection_rejected_task_occurrence_count": sum(
+                len(rejections) for rejections in projection_rejection_lists
+            ),
+            "unique_context_projection_rejected_task_count": len(
+                set(rejected_projection_task_ids)
+            ),
             "raw_context_estimated_tokens": raw_tokens,
             "projected_context_estimated_tokens": projected_tokens,
             "raw_context_serialized_bytes": raw_bytes,
@@ -178,14 +227,18 @@ def _load_sessions(
 
 
 def _custom_records(
-    entries: Iterable[Mapping[str, Any]], custom_type: str, *, nested: str | None = None
+    entries: Iterable[Mapping[str, Any]],
+    custom_type: str,
+    *,
+    nested: str | None = None,
+    schema_versions: frozenset[int] = frozenset({1}),
 ) -> list[Mapping[str, Any]]:
     records: list[Mapping[str, Any]] = []
     for entry in entries:
         if entry.get("type") != "custom" or entry.get("customType") != custom_type:
             continue
         data = entry.get("data")
-        if not isinstance(data, Mapping) or data.get("schemaVersion") != 1:
+        if not isinstance(data, Mapping) or data.get("schemaVersion") not in schema_versions:
             continue
         value = data.get(nested) if nested else data
         if isinstance(value, Mapping):
